@@ -1,1 +1,40 @@
 
+name: Pull and Push Docker Images to Aliyun ACR
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  pull-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Pull and Push Images
+        run: |
+          if [ ! -f images.txt ]; then
+            echo "❌ images.txt not found!"
+            exit 1
+          fi
+          while IFS= read -r image || [ -n "$image" ]; do
+            [[ -z "$image" || "$image" == \#* ]] && continue
+            echo "✅ Processing $image ..."
+            docker pull $image || { echo "❌ Pull failed: $image"; exit 1; }
+            image_name=$(echo "$image" | awk -F'[:/]' '{print $NF}' | awk -F':' '{print $1}')
+            tag=$(echo "$image" | awk -F':' '{print $2}')
+            tag=${tag:-latest}
+            new_image="${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAMESPACE }}/${image_name}:${tag}"
+            docker tag $image $new_image
+            docker push $new_image
+            echo "✅ Successfully pushed $new_image"
+          done < images.txt
